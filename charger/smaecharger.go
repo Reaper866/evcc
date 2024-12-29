@@ -25,7 +25,7 @@ import (
 	"time"
 
 	"github.com/evcc-io/evcc/api"
-	"github.com/evcc-io/evcc/charger/smaevcharger"
+	"github.com/evcc-io/evcc/charger/smaecharger"
 	"github.com/evcc-io/evcc/provider"
 	"github.com/evcc-io/evcc/util"
 	"github.com/evcc-io/evcc/util/request"
@@ -46,7 +46,7 @@ type Smaevcharger struct {
 }
 
 func init() {
-	registry.Add("smaevcharger", NewSmaevchargerFromConfig)
+	registry.Add("smaecharger", NewSmaechargerFromConfig)
 }
 
 // NewSmaevchargerFromConfig creates a SMA EV Charger from generic config
@@ -76,11 +76,11 @@ func NewSmaevchargerFromConfig(other map[string]interface{}) (api.Charger, error
 		return nil, errors.New(`user "admin" not allowed, create new user`)
 	}
 
-	return NewSmaevcharger(cc.Uri, cc.User, cc.Password, cc.Cache)
+	return NewSmaecharger(cc.Uri, cc.User, cc.Password, cc.Cache)
 }
 
 // NewSmaevcharger creates an SMA EV Charger
-func NewSmaevcharger(uri, user, password string, cache time.Duration) (api.Charger, error) {
+func NewSmaecharger(uri, user, password string, cache time.Duration) (api.Charger, error) {
 	log := util.NewLogger("smaevcharger").Redact(user, password)
 
 	wb := &Smaevcharger{
@@ -98,7 +98,7 @@ func NewSmaevcharger(uri, user, password string, cache time.Duration) (api.Charg
 	wb.measurementG = provider.ResettableCached(wb._measurementData, wb.cache)
 	wb.parameterG = provider.ResettableCached(wb._parameterData, wb.cache)
 
-	ts, err := smaevcharger.TokenSource(log, wb.uri, user, password)
+	ts, err := smaecharger.TokenSource(log, wb.uri, user, password)
 	if err != nil {
 		return wb, err
 	}
@@ -137,7 +137,7 @@ func NewSmaevcharger(uri, user, password string, cache time.Duration) (api.Charg
 }
 
 // Status implements the api.Charger interface
-func (wb *Smaevcharger) Status() (api.ChargeStatus, error) {
+func (wb *Smaecharger) Status() (api.ChargeStatus, error) {
 	state, err := wb.getMeasurement("Measurement.Operation.EVeh.ChaStt")
 	if err != nil {
 		return api.StatusNone, err
@@ -150,7 +150,7 @@ func (wb *Smaevcharger) Status() (api.ChargeStatus, error) {
 		// the charging status must be changed / overwritten from fast charging to charging stop as soon as a vehicle is detected (StatusB)
 		// After that, EVCC can decide which charging option should be selected.
 
-		if state == smaevcharger.StatusB && wb.oldstate == smaevcharger.StatusA {
+		if state == smaecharger.StatusB && wb.oldstate == smaevcharger.StatusA {
 			if err := wb.Send(value("Parameter.Chrg.ActChaMod", smaevcharger.StopCharge)); err != nil {
 				return api.StatusNone, err
 			}
@@ -159,11 +159,11 @@ func (wb *Smaevcharger) Status() (api.ChargeStatus, error) {
 	}
 
 	switch state {
-	case smaevcharger.StatusA:
+	case smaecharger.StatusA:
 		return api.StatusA, nil
-	case smaevcharger.StatusB:
+	case smaecharger.StatusB:
 		return api.StatusB, nil
-	case smaevcharger.StatusC:
+	case smaecharger.StatusC:
 		return api.StatusC, nil
 	default:
 		return api.StatusNone, fmt.Errorf("invalid state: %.0f", state)
@@ -171,16 +171,16 @@ func (wb *Smaevcharger) Status() (api.ChargeStatus, error) {
 }
 
 // Enabled implements the api.Charger interface
-func (wb *Smaevcharger) Enabled() (bool, error) {
+func (wb *Smaecharger) Enabled() (bool, error) {
 	mode, err := wb.getParameter("Parameter.Chrg.ActChaMod")
 	if err != nil {
 		return false, err
 	}
 
 	switch mode {
-	case smaevcharger.FastCharge, // Schnellladen - 4718
-		smaevcharger.OptiCharge, // Optimiertes Laden - 4719
-		smaevcharger.PlanCharge: // Laden mit Vorgabe - 4720
+	case smaecharger.FastCharge, // Schnellladen - 4718
+		smaecharger.OptiCharge, // Optimiertes Laden - 4719
+		smaecharger.PlanCharge: // Laden mit Vorgabe - 4720
 		return true, nil
 	case smaevcharger.StopCharge: // Ladestopp - 4721
 		return false, nil
@@ -190,7 +190,7 @@ func (wb *Smaevcharger) Enabled() (bool, error) {
 }
 
 // Enable implements the api.Charger interface
-func (wb *Smaevcharger) Enable(enable bool) error {
+func (wb *Smaecharger) Enable(enable bool) error {
 	if enable {
 		res, err := wb.getMeasurement("Measurement.Chrg.ModSw")
 		if err != nil {
@@ -218,14 +218,14 @@ func (wb *Smaevcharger) Enable(enable bool) error {
 }
 
 // MaxCurrent implements the api.Charger interface
-func (wb *Smaevcharger) MaxCurrent(current int64) error {
+func (wb *Smaecharger) MaxCurrent(current int64) error {
 	return wb.MaxCurrentMillis(float64(current))
 }
 
 var _ api.ChargerEx = (*Smaevcharger)(nil)
 
 // maxCurrentMillis implements the api.ChargerEx interface
-func (wb *Smaevcharger) MaxCurrentMillis(current float64) error {
+func (wb *Smaecharger) MaxCurrentMillis(current float64) error {
 	if current < 6 {
 		return fmt.Errorf("invalid current %.5g", current)
 	}
@@ -236,22 +236,22 @@ func (wb *Smaevcharger) MaxCurrentMillis(current float64) error {
 var _ api.MeterEnergy = (*Smaevcharger)(nil)
 
 // TotalEnergy implements the api.MeterEnergy interface
-func (wb *Smaevcharger) TotalEnergy() (float64, error) {
-	val, err := wb.getMeasurement("Measurement.Metering.GridMs.TotWhIn")
+func (wb *Smaecharger) TotalEnergy() (float64, error) {
+	val, err := wb.getMeasurement("Measurement.Metering.GridMs.TotWhIn.ChaSta")
 	return val / 1e3, err
 }
 
 var _ api.Meter = (*Smaevcharger)(nil)
 
 // CurrentPower implements the api.Meter interface
-func (wb *Smaevcharger) CurrentPower() (float64, error) {
-	return wb.getMeasurement("Measurement.Metering.GridMs.TotWIn")
+func (wb *Smaecharger) CurrentPower() (float64, error) {
+	return wb.getMeasurement("Measurement.Metering.GridMs.TotWIn.ChaSta")
 }
 
 var _ api.ChargeRater = (*Smaevcharger)(nil)
 
 // ChargedEnergy implements the api.ChargeRater interface
-func (wb *Smaevcharger) ChargedEnergy() (float64, error) {
+func (wb *Smaecharger) ChargedEnergy() (float64, error) {
 	res, err := wb.getMeasurement("Measurement.ChaSess.WhIn")
 	return res / 1e3, err
 }
@@ -259,7 +259,7 @@ func (wb *Smaevcharger) ChargedEnergy() (float64, error) {
 var _ api.PhaseCurrents = (*Smaevcharger)(nil)
 
 // Currents implements the api.PhaseCurrents interface
-func (wb *Smaevcharger) Currents() (float64, float64, float64, error) {
+func (wb *Smaecharger) Currents() (float64, float64, float64, error) {
 	var res [3]float64
 
 	for i, phase := range []string{"A", "B", "C"} {
@@ -275,12 +275,12 @@ func (wb *Smaevcharger) Currents() (float64, float64, float64, error) {
 }
 
 // reset cache
-func (wb *Smaevcharger) reset() {
+func (wb *Smaecharger) reset() {
 	wb.measurementG.Reset()
 	wb.parameterG.Reset()
 }
 
-func (wb *Smaevcharger) _measurementData() ([]smaevcharger.Measurements, error) {
+func (wb *Smaecharger) _measurementData() ([]smaevcharger.Measurements, error) {
 	var res []smaevcharger.Measurements
 	uri := fmt.Sprintf("%s/measurements/live", wb.uri)
 	data := `[{"componentId": "IGULD:SELF"}]`
@@ -293,7 +293,7 @@ func (wb *Smaevcharger) _measurementData() ([]smaevcharger.Measurements, error) 
 	return res, err
 }
 
-func (wb *Smaevcharger) _parameterData() ([]smaevcharger.Parameters, error) {
+func (wb *Smaecharger) _parameterData() ([]smaevcharger.Parameters, error) {
 	var res []smaevcharger.Parameters
 	uri := fmt.Sprintf("%s/parameters/search/", wb.uri)
 	data := `{"queryItems":[{"componentId":"IGULD:SELF"}]}`
@@ -306,7 +306,7 @@ func (wb *Smaevcharger) _parameterData() ([]smaevcharger.Parameters, error) {
 	return res, err
 }
 
-func (wb *Smaevcharger) getMeasurement(id string) (float64, error) {
+func (wb *Smaecharger) getMeasurement(id string) (float64, error) {
 	res, err := wb.measurementG.Get()
 	if err != nil {
 		return 0, err
@@ -321,7 +321,7 @@ func (wb *Smaevcharger) getMeasurement(id string) (float64, error) {
 	return 0, fmt.Errorf("unknown measurement: %s", id)
 }
 
-func (wb *Smaevcharger) getParameter(id string) (string, error) {
+func (wb *Smaecharger) getParameter(id string) (string, error) {
 	res, err := wb.parameterG.Get()
 	if err != nil {
 		return "", err
@@ -336,7 +336,7 @@ func (wb *Smaevcharger) getParameter(id string) (string, error) {
 	return "", fmt.Errorf("unknown parameter: %s", id)
 }
 
-func (wb *Smaevcharger) Send(values ...smaevcharger.Value) error {
+func (wb *Smaecharger) Send(values ...smaevcharger.Value) error {
 	uri := fmt.Sprintf("%s/parameters/IGULD:SELF/", wb.uri)
 	data := smaevcharger.SendParameter{
 		Values: values,
@@ -351,9 +351,9 @@ func (wb *Smaevcharger) Send(values ...smaevcharger.Value) error {
 	return err
 }
 
-// value creates an smaevcharger.Value
+// value creates an smaecharger.Value
 func value(id, value string) smaevcharger.Value {
-	return smaevcharger.Value{
+	return smaecharger.Value{
 		Timestamp: time.Now().UTC().Format(smaevcharger.TimestampFormat),
 		ChannelId: id,
 		Value:     value,
